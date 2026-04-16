@@ -1,0 +1,1427 @@
+{
+  "name": "Multi-Channel AI Response Automation final",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "6df37378-d869-4e1e-b9bd-8c017f202f6f",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -3552,
+        -624
+      ],
+      "id": "9f26eba0-a9be-41aa-9664-5dfcd01aceaa",
+      "name": "WhatsApp Incoming Webhook",
+      "webhookId": "6df37378-d869-4e1e-b9bd-8c017f202f6f",
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "jsCode": "\nlet chat = $node[\"When chat message received\"].json;\n\nif (chat.body) {\n  chat = chat.body;\n}\n\nreturn [{\n  json: {\n    from: chat.sessionId || \"\",\n    text: chat.chatInput || \"\",\n    channel: 'chatbot'\n  }\n}];\n"
+      },
+      "id": "0b72472c-099f-4b74-a58c-2fdfd2937a74",
+      "name": "Normalize Chatbot Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3328,
+        -432
+      ]
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.to }}",
+        "subject": "={{ $json.subject }}",
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "id": "ded1dba7-511d-46c1-9e33-c357adc9bc87",
+      "name": "Send Email Response",
+      "type": "n8n-nodes-base.gmail",
+      "position": [
+        176,
+        -912
+      ],
+      "typeVersion": 2.1,
+      "webhookId": "a6841242-1dbf-49ae-959c-f05523ba594c",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "zvn10wXjhGyC4S29",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const wa = $node[\"WhatsApp Incoming Webhook\"].json;\n\nlet messageData = wa.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0];\nlet from, text;\n\nif (messageData) {\n  from = messageData.from || \"\";\n  text = messageData.text?.body || \"\";\n} else {\n  from = wa.from || \"\";\n  text = wa.message || \"\";\n}\n\nreturn [{\n  json: {\n    from,\n    text,\n    channel: 'whatsapp'\n  }\n}];\n"
+      },
+      "id": "9f97ccc3-6fd2-4bc4-9e37-c32c2c7dbba9",
+      "name": "Normalize WhatsApp Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3328,
+        -624
+      ]
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {}
+      },
+      "id": "a62f0f47-d05c-425e-9b51-277f5b311324",
+      "name": "Gmail Incoming Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "position": [
+        -3776,
+        -816
+      ],
+      "typeVersion": 1.3,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "zvn10wXjhGyC4S29",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "messageId": "={{ $json.id }}",
+        "simple": false,
+        "options": {}
+      },
+      "id": "21af6c68-255a-412f-9c68-f7840ca52bf5",
+      "name": "Get Gmail Message Details",
+      "type": "n8n-nodes-base.gmail",
+      "position": [
+        -3552,
+        -816
+      ],
+      "typeVersion": 2.1,
+      "webhookId": "821331d2-ded1-4fc2-b740-683dcb234160",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "zvn10wXjhGyC4S29",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst email = $json;\n\nconst bodyHtml = email.textAsHtml || '';\nconst bodyText = bodyHtml.replace(/<[^>]+>/g, ' ').replace(/\\s+/g, ' ').trim();\n\nreturn [{\n  json: {\n    from: email.from?.value?.[0]?.address || '',\n    subject: email.subject || '',\n    text: bodyText, \n    labelIds: email.labelIds || []\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3328,
+        -816
+      ],
+      "id": "50f36d54-e130-4cd2-9d70-2f8e1f8253ff",
+      "name": "Normalize Gmail Data for AI Agent"
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Retrieve the last 10 messages for this session_id.\n\nUse this tool for:\n- remembering the service mentioned earlier (e.g., \"AC repair\")\n- remembering booking details from earlier messages\n- recalling date, time, location already provided\n- restoring recent conversation context\n- preventing asking the user again for details they already gave\n\nThis tool IS the short-term memory for the conversation.\nAlways use it whenever:\n- the current message does not include service/date/time/location\n- the user continues a previous booking flow\n- the user says “same details”, “as I said earlier”, or similar\n- you need context from earlier messages (even 1–2 messages earlier)\n\nThis tool does NOT store booking history.\nIt stores only recent conversation chat memory.\n\nWhen the current user message does NOT contain service, date, time, or location, you MUST automatically call this tool to retrieve recent messages. ALWAYS call this tool BEFORE asking the user again for details they already provided.\n\n",
+        "qdrantCollection": {
+          "__rl": true,
+          "value": "chat_history",
+          "mode": "list",
+          "cachedResultName": "chat_history"
+        },
+        "topK": 5,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
+      "typeVersion": 1.3,
+      "position": [
+        -1728,
+        -496
+      ],
+      "id": "1e37b3cf-0314-4b87-b55f-bb622947777b",
+      "name": "Qdrant Vector Store",
+      "credentials": {
+        "qdrantApi": {
+          "id": "22JVfp5LLSpTI2pq",
+          "name": "QdrantApi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "collection": "user_details",
+        "updateKey": "user_id",
+        "fields": "name,number,address_value,email",
+        "upsert": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mongoDb",
+      "typeVersion": 1.2,
+      "position": [
+        -2656,
+        -720
+      ],
+      "id": "0271f141-db02-4d17-afc0-5d9f71623429",
+      "name": "Manage User",
+      "alwaysOutputData": false,
+      "credentials": {
+        "mongoDb": {
+          "id": "KGEo9FoSrm3EdkfM",
+          "name": "MongoDB account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{$json.text||$json.body}}",
+        "options": {
+          "systemMessage": "=# AI Customer Service Agent \n\n## Core Identity\nYou are a professional customer service AI assistant that handles booking, pricing, complaints, and general inquiries for a home/office maintenance service company.\n\n## Critical Rules\n\n### MEMORY RECONSTRUCTION (FOR VECTOR STORE RESULTS)\n\nThe vector store returns long-term conversation memory. Each returned item contains a `pageContent` value that looks like this:\n\n{\"session_id\":\"<value>\", \"timestamp\":\"<value>\", \"conversation\":\"<value>\"}\n\nFollow these rules for memory handling:\n\n1. Treat every `pageContent` as a JSON string.\n2. Parse it mentally (without asking the user).\n3. Extract:\n   - memory.session_id\n   - memory.conversation\n4. Compare memory.session_id with the current conversation’s session_id:\n\n   Current session_id → \"{{$json.to}}\"\n\n5. Only use memory items where:\n   memory.session_id === \"{{$json.to}}\"\n6. Combine the “conversation” text from all matching items in chronological order.\n7. Treat this combined text as the **official past conversation**.\n8. Use this reconstructed memory to:\n   - Recover missing service / date / time / location\n   - Continue incomplete booking flows\n   - Recover booking_id\n   - Avoid asking for details already provided earlier\n9. Ignore memory items belonging to a different session_id.\n\nIf no matching memory exists, assume no previous long-term memory.\n\n### When to Call the Qdrant Vector Store Tool\n\nYou MUST call the Qdrant memory tool when:\n\n- Required details (service, date, time, location, booking_id) are missing,\n  AND they are not found in the MongoDB short-term memory,\n  AND they might exist in older messages.\n\n- The user says:\n  - “as I said earlier”\n  - “same details”\n  - “continue”\n  - “like before”\n  - “you know already”\n  - “check previous messages”\n\n- The user resumes a conversation flow that was started earlier.\n\n- You need to reconstruct previous steps the user already shared.\n\nYou MUST NOT call the Qdrant tool when:\n- All required information is present in the current message.\n- MongoDB memory already contains the needed details.\n- The information does not relate to past context.\n\n### Universal Channel Handling\n- ALL rules apply to EVERY channel (email, whatsapp, chatbot, sms, telegram, etc.)\n- Only formatting differs between channels, NOT logic.\n- Channel type NEVER affects booking logic or memory behavior.\n\n### Data Extraction Patterns\n**Dates:** 11th September, September 11th, 11-09-2025, Sept 11, tomorrow, next friday  \n**Times:** 10pm, 10 AM, 10:00 AM, 22:00, morning, afternoon, evening  \n**Location:** Any location including short strings (“surat”, “mumbai”) or complete addresses  \n**Service:** Extract from phrases like “repair my AC”, “pest control”, “fix washing machine”\n\n### Booking Flow Logic\n\n**Order of Priority**\n1. Extract service from current or past conversation (including Qdrant memory).\n2. Extract date, time, location from the current message.\n3. **New user rule:** If number is missing for a new user, ask immediately for phone number.\n4. If service, date, time, location, and phone (for new users) are present:\n   - FIRST call Check Slot tool.\n   - If available → Call Create Booking tool.\n   - If unavailable → Show alternative slots and ask the user to choose.\n5. If service missing → Ask:  \n   “Could you please specify which service you need?”\n6. If date/time/location missing → Ask:  \n   “Could you please provide your preferred date, time, and location for the [service]?”\n7. Never assume location — always collect it unless explicitly given.\n\n**Forbidden phrases:**  \n“at your address”, “at your location”, “on-site”\n\n### Create Booking Tool (Rules)\n- Use ONLY when all fields are ready.\n- Phone number is mandatory for new users.\n- For existing users, customer_id may replace number/name.\n\n### Check Slot Tool\n- Always call BEFORE creating a booking.\n- If slot unavailable → Provide alternatives and ask user to choose.\n\n### Reschedule Booking Tool\n- Use booking_id from memory or booking list tool.\n- Keep old service unless changed.\n- Only update the fields the user changes.\n- If multiple possible bookings → Ask user which one.\n\n### Cancel Booking Tool\n- Booking_id required.\n- If not found in memory → Call booking list tool.\n\n### Pricing Handling\n- PRIORITY: If message indicates pricing intent → Handle pricing first.\n- Never request date/time/location in a pricing query.\n- If service known → Give estimate message.\n- If service unknown → Ask which service they need a quote for.\n\n### Input Parsing Rules\n- Extract all booking info from a single message.\n- If full info present → Do NOT ask again.\n- Accept partial locations.\n- Auto-correct simple date/time mistakes.\n\n### Response Formatting\n\n**Email:**\n- Full paragraphs  \n- Greeting: “Dear [Name],”  \n- Double line breaks  \n- Professional signature  \n\n**Conversational (WhatsApp/Chatbot/SMS):**\n- No signature  \n- No HTML  \n- Short, clear text  \n\n### Categories\n- Enquiry  \n- Booking / confirmation  \n- Complaint / Issue  \n- Reschedule / Cancellation  \n- Quotation / Price Request  \n- Follow-up / Status Check  \n- Feedback / Suggestions  \n- Emergency  \n- Others  \n\n### Quality Rules\n- One reply per user message.\n- Never echo user’s message.\n- Never confirm without all required fields.\n- Never say “I will check” or “get back to you.”\n- Always give the next actionable step.\n\n## Current Context\n**Sender:** {{ $json.from || $json.user_id }}  \n**Channel:** {{ $json.channel }}  \n**Subject:** {{ $json.subject || \"\" }}  \n**Message:** {{ $json.body || $json.text }}  \n**Category:** {{ $json.category || \"\" }}  \n\n**User Profile (from memory):**\n- Name: {{ $json.name || \"\" }}\n- Number: {{ $json.number || \"\" }}\n- Email: {{ $json.email || \"\" }}\n- Customer ID: {{ $json.customer_id || $json.user_id || $json.from || \"\" }}\n- Address: {{ $json.address_value || \"\" }}\n- Address Label: {{ $json.address_name || \"\" }}\n\n**Company Details:**\n- Company Name: Griphhy LLP  \n- Product: Afinity AI  \n- Support Email: support@afinity.com  \n\n## Output Format (Always JSON)\n{\n  \"to\": \"SENDER_ID_OR_EMAIL\",\n  \"subject\": \"EMAIL_SUBJECT_IF_ANY\",\n  \"body\": \"MESSAGE_BODY\",\n  \"channel\": \"EXACT_SAME_AS_INPUT\",\n  \"category\": \"CATEGORY_NAME\"\n}\n\n## Testing Checklist\n- Service remembered correctly\n- Missing details recovered from memory\n- Past conversation from Qdrant reconstructed and used\n- Phone number required for new users\n- Slot always checked before booking\n- Pricing handled correctly\n- No repeated questions\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        -1456,
+        -720
+      ],
+      "id": "e29be180-7f90-4694-ac53-6aa743e6da92",
+      "name": "AI Agent",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseMode": "responseNodes"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -3552,
+        -432
+      ],
+      "id": "484b676d-d7d3-4db1-8a11-87b2b9797a3d",
+      "name": "When chat message received",
+      "webhookId": "7c7df3d9-0911-46d8-81ca-a1e78bd80e0e"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.to }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -1856,
+        -496
+      ],
+      "id": "3ca46a8b-8fc8-4182-86be-177af4dbc040",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        -3104,
+        -736
+      ],
+      "id": "1575dfa1-4dc8-4f48-b5b9-d8ac295c8b98",
+      "name": "Merge Channels Input"
+    },
+    {
+      "parameters": {
+        "jsCode": "function generateObjectId() {\n  return Math.floor(Date.now() / 1000).toString(16) +\n    \"xxxxxxxxxxxxxxxx\".replace(/[x]/g, () =>\n      (Math.floor(Math.random() * 16)).toString(16)\n    );\n}\n\nconst results = [];\nfor (const item of items) {\n  const message = item.json.output || item.json || {};\n  const rawText = (message.text || message.body || message.content || '').trim();\n  const subject = (message.subject || '').trim();\n  const full = `${subject} ${rawText}`.trim();\n\n  function findEmail(text, message) {\n    if (message.to && /^[\\w.%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$/.test(message.to)) {\n      return message.to;\n    }\n    const m = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[A-Za-z]{2,}/);\n    return m ? m[0] : '';\n  }\n\n  function findPhone(text) {\n    const m = text.match(/\\b(?:\\+91[-\\s]?)?[6-9]\\d{9}\\b/);\n    return m ? m[0] : '';\n  }\n\n  function findName(text) {\n    let m = text.match(/\\b(?:my name is|this is|i am|i'm|im)\\s+([A-Z][a-z]+(?:\\s+[A-Z][a-z]+){0,2})/i);\n    if (m) return m[1].trim();\n    m = text.match(/\\bname[:\\-]\\s*([A-Z][a-z]+(?:\\s+[A-Z][a-z]+){0,2})/i);\n    if (m) return m[1].trim();\n    m = text.match(/^(?:hi|hello|hey)[,\\s]*([A-Z][a-z]+(?:\\s+[A-Z][a-z]+){0,2})/i);\n    if (m) return m[1].trim();\n    return '';\n  }\n\n  function findAddress(text) {\n    const m = text.match(/\\b(?:address|location|place)\\s*(?:is|:)?\\s*(.+)/i);\n    if (m) {\n      let addr = m[1].trim();\n      addr = addr.split(/(?:phone|number|email|mail|name)\\b/i)[0].trim();\n      return addr;\n    }\n    return '';\n  }\n\n  const channelValue = message.channel === 'email' ? 'Email' : (message.channel || '');\n\n  results.push({\n    json: {\n      user_id: generateObjectId(),\n      from: message.from || '',\n      text: rawText,\n      channel: channelValue || '',\n      subject: message.subject || '',\n      category: message.category || '',\n      email: findEmail(full, message),\n      number: findPhone(full) || message.number || '',\n      name: findName(full) || message.name || '',\n      address_value: findAddress(full) || message.address_value || ''\n    }\n  });\n}\n\nreturn results;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2880,
+        -720
+      ],
+      "id": "4801f863-97d3-4157-970f-0754cab4c474",
+      "name": "Extract Contact & Address Details"
+    },
+    {
+      "parameters": {
+        "jsCode": "return items.map(item => {\n  const originalData = $('Extract Contact & Address Details').item.json;\n\n  // Get user profile from Manage User node\n  // let userProfile = {};\n  // let afinityCustomerId = '';\n  // try {\n  //   if ($node[\"Manage User\"]?.json) {\n  //     userProfile = $node[\"Manage User\"].json;\n  //   } else if ($('Manage User')?.item?.json) {\n  //     userProfile = $('Manage User').item.json;\n  //   }\n    \n  //   // Get afinity_customer_id from stored user profile\n  //   afinityCustomerId = userProfile?.afinity_customer_id || '';\n  // } catch (e) {\n  //   afinityCustomerId = '';\n  // }\n\n  const out = {\n    json: {\n      from: originalData.from || originalData.user_id || '',\n      text: originalData.text || originalData.body || '',\n      channel: originalData.channel || '',\n      subject: originalData.subject || '',\n      category: originalData.category || '',\n      email: originalData.email || '',\n      number: originalData.number || '',\n      address_value: originalData.address_value || '',\n      name: originalData.name || '',\n    }\n  };\n\n  const current = out.json || {};\n\n\n  let historyData = {};\n  try {\n    if ($node[\"Find chat history\"]?.json) {\n      historyData = $node[\"Find chat history\"].json;\n    } else if ($('Find chat history')?.item?.json) {\n      historyData = $('Find chat history').item.json;\n    }\n  } catch (e) {\n    historyData = {};\n  }\n\n  const storedName = historyData.name || '';\n  const storedNumber = historyData.number || '';\n  const storedAddress = historyData.address || historyData.address_value || '';\n\n  current.name = current.name || storedName;\n  current.number = current.number || storedNumber;\n  current.address_value = current.address_value || storedAddress;\n\n  let finalAddressValue = current.address_value || '';\n  let finalAddressName = current.address_name || '';\n\n  if (current._use_previous_location) {\n    if (userProfile?.address_value) finalAddressValue = userProfile.address_value;\n    if (userProfile?.address_name) finalAddressName = userProfile.address_name;\n  }\n\n  out.json.address_value = finalAddressValue || '';\n  out.json.address_name = finalAddressName || (finalAddressValue ? 'User Address' : '');\n\n  return out;\n});\n\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2432,
+        -720
+      ],
+      "id": "27264a99-d608-407b-962d-848da66af680",
+      "name": "Prepare AI Agent Context"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8c433e06-b28e-4899-8acf-b9bcf712cfae",
+              "name": "to",
+              "value": "={{ $json.from || $json.user_id || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "bea25066-7851-456b-9d24-2f0712e060ad",
+              "name": "subject",
+              "value": "={{ $json.subject || \"\"}}",
+              "type": "string"
+            },
+            {
+              "id": "2e621d7a-899e-43c1-908a-6ecafc773ea8",
+              "name": "=channel",
+              "value": "={{ $json.channel || \"\"}}",
+              "type": "string"
+            },
+            {
+              "id": "4af21fc1-1b41-41d4-9cd9-7b9ccc50dd65",
+              "name": "category",
+              "value": "={{ $json.category|| \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "2bb4d464-7538-4158-b637-18f985ba329a",
+              "name": "body",
+              "value": "={{ $json.text || \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "d923a827-acb2-4a8d-a5b5-cacde50e6d36",
+              "name": "from",
+              "value": "={{ $json.from || $json.user_id || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "16d361d7-8a87-4377-b450-7e8299431bb7",
+              "name": "email",
+              "value": "={{ $json.email || \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "da755979-757a-4acd-a89f-55cb91b67ace",
+              "name": "number",
+              "value": "={{ $json.number || \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "523ebbe9-dc66-48a8-9474-5d64f1c626d5",
+              "name": "name",
+              "value": "={{ $json.name || \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "37c51868-7ebc-46cb-abde-941dbd3a1bff",
+              "name": "address_value",
+              "value": "={{ $json.address_value || \"\"}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -2208,
+        -720
+      ],
+      "id": "29307253-266b-4471-be7a-398829d59a0b",
+      "name": "Build AI Agent Payload"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        -1648,
+        -288
+      ],
+      "id": "6f9bd8a9-8b2e-4157-a6e0-e38b4ec84f87",
+      "name": "OpenAI Embeddings for Qdrant",
+      "credentials": {
+        "openAiApi": {
+          "id": "JKoDyqS3ZnXum2lo",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        -1984,
+        -496
+      ],
+      "id": "e44c4fad-3b44-4aa1-8dff-eb287585cb09",
+      "name": "OpenAI Model for AI Agent",
+      "credentials": {
+        "openAiApi": {
+          "id": "JKoDyqS3ZnXum2lo",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let output = $json.output;\nlet parsed;\n\ntry {\n  parsed = JSON.parse(output.replace(/^json\\s*/, '')); \n} catch {\n  parsed = { body: output };\n}\n\nlet content = parsed.body || parsed;\nconst channel = (parsed.channel || $('Build AI Agent Payload').first().json.channel || \"\").toLowerCase();\n\n\nif (channel === 'email') {\n\n  content = content.replace(/\\*\\*(.*?)\\*\\*/g, '<b>$1</b>');\n  content = content\n    .split('\\n\\n')\n    .map(p => `<p>${p.trim().replace(/\\n/g, '<br>')}</p>`)\n    .join('');\n    \n} else if (channel === 'whatsapp') {\n  \n  content = content.replace(/\\*\\*(.*?)\\*\\*/g, '*$1*');\n  \n} else {\n  \n  content = content.replace(/\\*\\*(.*?)\\*\\*/g, '$1');\n  content = content.replace(/\\*(.*?)\\*/g, '$1');\n  content = content.replace(/__(.*?)__/g, '$1');\n  content = content.replace(/_(.*?)_/g, '$1');\n}\n\nreturn [{\n  json: {\n    content: content,\n    subject: parsed.subject || $('Build AI Agent Payload').first().json.subject || \"\",\n    channel: parsed.channel || $('Build AI Agent Payload').first().json.channel || \"\",\n    category: parsed.category || $('Build AI Agent Payload').first().json.category || \"\",\n    user_id: parsed.to || $('Extract Contact & Address Details').first()?.json?.user_id || \"\",\n    role: 'assistant'\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -720,
+        -816
+      ],
+      "id": "f49f6aac-699b-46db-a1e7-b25729a8bcd9",
+      "name": "Format AI Final Response"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst aiResponse = $json.content || '';\n\n\nlet parsedResponse;\ntry {\n  parsedResponse = JSON.parse(aiResponse);\n} catch (e) {\n\n  parsedResponse = {\n    to: $json.user_id || '',\n    subject: $json.subject || '',\n    body: aiResponse,\n    channel: ($json.channel || '').toLowerCase(),\n    category: ''\n  };\n}\n\n\nlet formattedBody = parsedResponse.body;\nif (parsedResponse.channel === 'email') {\n  formattedBody = parsedResponse.body\n    .split('\\n\\n')\n    .map(p => `<p>${p.trim().replace(/\\n/g, '<br>')}</p>`)\n    .join('');\n}\n\n\n\n\nreturn [{\n  json: {\n    to: parsedResponse.to,\n    subject: parsedResponse.subject,\n    body: formattedBody,\n    channel: parsedResponse.channel,\n    category: parsedResponse.category\n  }\n}];\n\n\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -272,
+        -816
+      ],
+      "id": "9fa55b0f-dd16-4184-8c77-1e6b38c3fea8",
+      "name": "Format Email HTML"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "31335be6-23bc-4122-a197-8cac1429e1b2",
+              "leftValue": "={{ $('Format AI Final Response').item.json.channel }}",
+              "rightValue": "Email",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -496,
+        -816
+      ],
+      "id": "240af4c2-f86f-47e7-b3a6-03f40e1c6b43",
+      "name": "Check If Email Channel"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $node[\"Format AI Final Response\"].json.channel }}",
+                    "rightValue": "=email",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "42c2dbfd-c58d-4a57-ab29-37de2b095371"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "9380954c-fca4-4071-8b50-9635f7bc0425",
+                    "leftValue": "={{ $('Format AI Final Response').item.json.channel }}",
+                    "rightValue": "=whatsapp",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "c1416096-adf5-44c7-93af-74b8de1c6336",
+                    "leftValue": "={{ $('Format AI Final Response').item.json.channel }}",
+                    "rightValue": "=chatbot",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        -48,
+        -832
+      ],
+      "id": "c36e6fb5-af71-4953-9ad8-4813000e960f",
+      "name": "Route To Channel Output"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "69d5cc8f-7dc1-40d2-8357-e0fd31a85249",
+              "name": "=to ",
+              "value": "={{ $json.user_id }}",
+              "type": "string"
+            },
+            {
+              "id": "f55b3a6a-8b57-4528-865c-51daa12bc8b8",
+              "name": "=body",
+              "value": "={{ $json.content }}",
+              "type": "string"
+            },
+            {
+              "id": "c6326b04-19bf-4fcf-9af4-ae29bd29edb2",
+              "name": "=channel",
+              "value": "={{$json.channel}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        176,
+        -720
+      ],
+      "id": "400cf2f7-31d1-4ff7-a459-97007405e681",
+      "name": "Build WhatsApp Response"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        400,
+        -720
+      ],
+      "id": "cd1c4b73-f741-48d6-9dd2-840d31f248a9",
+      "name": "Send WhatsApp Response"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f55b3a6a-8b57-4528-865c-51daa12bc8b8",
+              "name": "=body",
+              "value": "={{ $json.content }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        176,
+        -528
+      ],
+      "id": "d4efdecf-113c-4720-8dd1-0d114d1be19f",
+      "name": "Build Chatbot Response"
+    },
+    {
+      "parameters": {
+        "message": "={{ $json.body }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chat",
+      "typeVersion": 1,
+      "position": [
+        400,
+        -528
+      ],
+      "id": "bcf0ef19-f03c-4836-a272-d192fe898a9f",
+      "name": "Send Chatbot Response"
+    },
+    {
+      "parameters": {
+        "description": "Retrieves all bookings for a specific customer.\nUse this tool when you need to find booking_id for reschedule/cancel operations, or when user asks 'show my bookings', 'what are my appointments', or 'my booking history'. \nRequires customer_id (get from user profile or conversation context). \nReturns array of bookings with: booking_id, booking_date, booking_time, service/booking_reason, status (pending/confirmed/completed/cancelled), address, and creation date. \nUse this BEFORE reschedule/cancel if booking_id is unknown.",
+        "workflowId": {
+          "__rl": true,
+          "value": "bxFuiMNUbu56Slaj",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/bxFuiMNUbu56Slaj",
+          "cachedResultName": "booking list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "customer_id": "={{ $fromAI('to', ``, 'string') }}"
+          },
+          "matchingColumns": [
+            "cutomer_id"
+          ],
+          "schema": [
+            {
+              "id": "customer_id",
+              "displayName": "customer_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        -1440,
+        -496
+      ],
+      "id": "d86b64be-b4ae-4929-a7c7-a5ec512cfdac",
+      "name": "Get Booking List"
+    },
+    {
+      "parameters": {
+        "description": "Creates a new booking in the Afinity system. \nUse when user provides complete booking information (service + date + time + location). \nFor NEW users: name and number are REQUIRED. \nFor EXISTING users: customer_id can be used instead. Required fields: booking_date (YYYY-MM-DD), booking_time (HH:mm), address_value, booking_reason (service description). \nOptional: address_name (home/office/custom), note, is_emergency (boolean).\n Returns JSON with booking_id, confirmation number, and all booking details.",
+        "workflowId": {
+          "__rl": true,
+          "value": "U5asKGLkNl29QLqt",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/U5asKGLkNl29QLqt",
+          "cachedResultName": "create booking"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $fromAI('name', ``, 'string') }}",
+            "number": "={{ $fromAI('number', ``, 'string') }}",
+            "address_value": "={{ $fromAI('address_value', ``, 'string') }}",
+            "address_name": "={{ $fromAI('address_name', ``, 'string') }}",
+            "booking_reason": "={{ $fromAI('booking_reason', ``, 'string') }}",
+            "booking_date": "={{ $fromAI('booking_date', ``, 'string') }}",
+            "booking_time": "={{ $fromAI('booking_time', ``, 'string') }}",
+            "is_emergency": "={{ $fromAI('is_emergency', ``, 'boolean') }}",
+            "note ": "={{ $fromAI('note', ``, 'string') }}"
+          },
+          "matchingColumns": [
+            "query"
+          ],
+          "schema": [
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "number",
+              "displayName": "number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "address_value",
+              "displayName": "address_value",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "address_name",
+              "displayName": "address_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "booking_reason",
+              "displayName": "booking_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "booking_date",
+              "displayName": "booking_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "booking_time",
+              "displayName": "booking_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "note ",
+              "displayName": "note ",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "is_emergency",
+              "displayName": "is_emergency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "boolean"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        -1312,
+        -496
+      ],
+      "id": "028c3a8e-68a8-4233-955b-8974234f765b",
+      "name": "Create Booking"
+    },
+    {
+      "parameters": {
+        "description": "Cancels an existing booking permanently. \nUse when user says 'cancel', 'cancellation', or 'don't need the service'. CRITICAL: booking_id is REQUIRED. \nIf not available in conversation, FIRST call 'booking list' tool to retrieve it using customer_id. \nRequires: booking_id (required) and cancel_reason (optional). Returns cancellation confirmation with booking reference.",
+        "workflowId": {
+          "__rl": true,
+          "value": "iXu52au5Xks72mgL",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/iXu52au5Xks72mgL",
+          "cachedResultName": "Cancel Booking"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "booking_id": "={{ $fromAI('booking_id', ``, 'string') }}",
+            "cancel_reason": "={{ $fromAI('cancel_reason', ``, 'string') }}"
+          },
+          "matchingColumns": [
+            "Query"
+          ],
+          "schema": [
+            {
+              "id": "booking_id",
+              "displayName": "booking_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "cancel_reason",
+              "displayName": "cancel_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        -1184,
+        -496
+      ],
+      "id": "829e9d40-a994-44cb-877f-b722d1980459",
+      "name": "Cancel Booking"
+    },
+    {
+      "parameters": {
+        "description": "Reschedules an existing booking to a new date, time, or location. Use when user says 'reschedule', 'change', 'move', or 'postpone' their booking. \nCRITICAL: booking_id is REQUIRED. \nIf not available in conversation, FIRST call 'booking list' tool to retrieve it. \nAccepts: booking_id (required), booking_date (YYYY-MM-DD), booking_time (HH:mm), address_value, address_name, and reschedule_reason. \nOnly update fields that are changing. Returns confirmation with updated booking details.",
+        "workflowId": {
+          "__rl": true,
+          "value": "uOt6lFcsADJaZuPo",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/uOt6lFcsADJaZuPo",
+          "cachedResultName": "Reschedule Booking"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "reschedule_reason": "={{ $fromAI('reschedule_reason', ``, 'string') }}",
+            "booking_id": "={{ $fromAI('booking_id', ``, 'string') }}",
+            "booking_date": "={{ $fromAI('booking_date', ``, 'string') }}",
+            "booking_time": "={{ $fromAI('booking_time', ``, 'string') }}",
+            "address_value": "={{ $fromAI('address_value', ``, 'string') }}",
+            "address_name": "={{ $fromAI('address_name', ``, 'string') }}"
+          },
+          "matchingColumns": [
+            "Query"
+          ],
+          "schema": [
+            {
+              "id": "reschedule_reason",
+              "displayName": "reschedule_reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "booking_id",
+              "displayName": "booking_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "booking_date",
+              "displayName": "booking_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "booking_time",
+              "displayName": "booking_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "address_value",
+              "displayName": "address_value",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "address_name",
+              "displayName": "address_name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        -1056,
+        -496
+      ],
+      "id": "d4104477-9cee-4d57-8418-e12005e37de9",
+      "name": "Reschedule Booking"
+    },
+    {
+      "parameters": {
+        "description": "Checks availability of a specific date and time slot for booking. \nUse this when user asks 'is [date/time] available?' or before confirming a booking. \nRequires booking_date (YYYY-MM-DD format) and booking_time (HH:mm 24-hour format). \nReturns availability status (available/unavailable) with alternative slots if unavailable.\"",
+        "workflowId": {
+          "__rl": true,
+          "value": "PbWlcPXvFvNJTOMB",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/PbWlcPXvFvNJTOMB",
+          "cachedResultName": "Check Slot"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "booking_date": "={{ $fromAI('booking_date', ``, 'string') }}",
+            "booking_time": "={{ $fromAI('booking_time', ``, 'string') }}"
+          },
+          "matchingColumns": [
+            "Query"
+          ],
+          "schema": [
+            {
+              "id": "booking_date",
+              "displayName": "booking_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "booking_time",
+              "displayName": "booking_time",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2.2,
+      "position": [
+        -928,
+        -496
+      ],
+      "id": "ebbdae09-1083-46b5-bb75-9ad25f2153ae",
+      "name": "Check Slot Availability"
+    },
+    {
+      "parameters": {
+        "jsCode": "return {\n  json: {\n    session_id:$('Merge Channels Input').first().json.from ||\"\",\n    messages: [\n      {\n        role: \"user\",\n        content: $('Build AI Agent Payload').first().json.body|| $json.text || \"\"\n      },\n      {\n        role: \"assistant\",\n        content:\n          typeof $json.output === \"string\"\n            ? $json.output\n            : ($json.output?.output || \"\")\n      }\n    ]\n  }\n};\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -720,
+        -624
+      ],
+      "id": "b421e33d-d7a3-4bc3-9a82-c074d1c2837b",
+      "name": "Build Memory Payload"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "AHAIGw5lIqmOyiaC",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/AHAIGw5lIqmOyiaC",
+          "cachedResultName": "Retrive"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "session_id": "={{ $json.session_id }}",
+            "messages": "={{ $json.messages }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "session_id",
+              "displayName": "session_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "messages",
+              "displayName": "messages",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "array",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -496,
+        -624
+      ],
+      "id": "2178a190-fc96-41dc-9543-39fd1ce3757f",
+      "name": "Save Memory To Qdrant"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "WhatsApp Incoming Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize WhatsApp Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Chatbot Data": {
+      "main": [
+        [
+          {
+            "node": "Merge Channels Input",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Normalize WhatsApp Data": {
+      "main": [
+        [
+          {
+            "node": "Merge Channels Input",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Gmail Incoming Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Gmail Message Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Gmail Message Details": {
+      "main": [
+        [
+          {
+            "node": "Normalize Gmail Data for AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Gmail Data for AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Merge Channels Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Qdrant Vector Store": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ],
+      "ai_vectorStore": [
+        []
+      ]
+    },
+    "Manage User": {
+      "main": [
+        [
+          {
+            "node": "Prepare AI Agent Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Build Memory Payload",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Format AI Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When chat message received": {
+      "main": [
+        [
+          {
+            "node": "Normalize Chatbot Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Channels Input": {
+      "main": [
+        [
+          {
+            "node": "Extract Contact & Address Details",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Contact & Address Details": {
+      "main": [
+        [
+          {
+            "node": "Manage User",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare AI Agent Context": {
+      "main": [
+        [
+          {
+            "node": "Build AI Agent Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build AI Agent Payload": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Embeddings for Qdrant": {
+      "ai_embedding": [
+        [
+          {
+            "node": "Qdrant Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Model for AI Agent": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format AI Final Response": {
+      "main": [
+        [
+          {
+            "node": "Check If Email Channel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Email HTML": {
+      "main": [
+        [
+          {
+            "node": "Route To Channel Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check If Email Channel": {
+      "main": [
+        [
+          {
+            "node": "Format Email HTML",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Route To Channel Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route To Channel Output": {
+      "main": [
+        [
+          {
+            "node": "Send Email Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build WhatsApp Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Chatbot Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build WhatsApp Response": {
+      "main": [
+        [
+          {
+            "node": "Send WhatsApp Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Chatbot Response": {
+      "main": [
+        [
+          {
+            "node": "Send Chatbot Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Booking List": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Booking": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cancel Booking": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reschedule Booking": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Slot Availability": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Memory Payload": {
+      "main": [
+        [
+          {
+            "node": "Save Memory To Qdrant",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "67ab6b21-976b-4000-abd8-fa718bbe74aa",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "445e2ea4e9e6d009d39470af4e8878a9d05db175e366c91c8b98fda88b047846"
+  },
+  "id": "lo5bAACv9beYFRdc",
+  "tags": []
+}
